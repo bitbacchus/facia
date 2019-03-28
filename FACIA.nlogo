@@ -4,6 +4,10 @@
 globals
 [
   vegetation-cover
+  L
+  U
+  a
+  b
 ]
 patches-own
 [
@@ -25,6 +29,8 @@ to setup
   ;; Calculate parameters a and b
   set a 1 / facilitation-competition-ratio
   set b 1
+  set U 1
+  set L -1
   ;; Set world dimensions
   resize-world (world_max_xycor * -1) world_max_xycor (world_max_xycor * -1) world_max_xycor
   set-patch-size round ((1 / mean (list world-width world-height)) * 500)
@@ -109,10 +115,11 @@ to go
     p_vegetation-noise
     ;; Check state caps:
     set state ifelse-value (state < 0) [0][ifelse-value (state > 3) [3][state]]
+
     ;; Paint patches:
     if (paint != "none") [p_paint]
   ]
-
+  road-disturbance
   ;; Increase tick counter:
   tick
 end
@@ -136,6 +143,17 @@ to p_paint  ;; patch procedure
   ]
 end
 
+to road-disturbance
+  ;; Maintain a road
+  if (road)
+  [
+    ask patches with [pycor = 0 or pycor = 1]
+    [
+      set state state - road_intensity
+      if state < 0 [set state 0]
+    ]
+  ]
+end
 
 to paint_donuts
   ;; Procedure to visualize the three donuts:
@@ -218,56 +236,12 @@ NIL
 1
 
 INPUTBOX
-10
-570
-60
-630
-a
-0.21186440677966104
-1
-0
-Number
-
-INPUTBOX
-60
-570
-110
-630
-b
-1.0
-1
-0
-Number
-
-INPUTBOX
-10
-630
-60
-690
-L
--1.0
-1
-0
-Number
-
-INPUTBOX
-60
-630
-110
-690
-U
-1.0
-1
-0
-Number
-
-INPUTBOX
 5
 225
 175
 285
 seed
-9.0
+1.0
 1
 0
 Number
@@ -297,7 +271,7 @@ CHOOSER
 paint
 paint
 "none" "vegetation" "interaction"
-2
+1
 
 CHOOSER
 5
@@ -499,7 +473,7 @@ TEXTBOX
 180
 155
 330
-200
+215
 Choose paint procedure:\n- vegetation/non-vegetation map\n- facilitation/competition map
 10
 0.0
@@ -555,16 +529,6 @@ Define radii for interactions:
 0.0
 1
 
-TEXTBOX
-170
-570
-330
-661
-Define interaction parameter:\na = competition factor\nb = facilitation factor\nL = lower limit of state changes\nU = upper limit of state changes
-10
-0.0
-1
-
 SLIDER
 175
 65
@@ -581,16 +545,42 @@ NIL
 HORIZONTAL
 
 SLIDER
-10
-690
-307
-723
+5
+570
+302
+603
 facilitation-competition-ratio
 facilitation-competition-ratio
 1
 5
-4.72
+4.57
 .01
+1
+NIL
+HORIZONTAL
+
+SWITCH
+10
+620
+113
+653
+road
+road
+0
+1
+-1000
+
+SLIDER
+10
+655
+182
+688
+road_intensity
+road_intensity
+0
+3
+1.0
+.1
 1
 NIL
 HORIZONTAL
