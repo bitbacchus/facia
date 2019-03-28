@@ -1,192 +1,162 @@
+;~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+; GLOBAL DEFINITIONS
+;~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+globals
+[
+  vegetation-cover
+]
+patches-own
+[
+  state
+  interaction
+  ps_fac
+  ps_com
+  ps_buf
+]
 
-;; global variables
-patches-own [state x_temp y_temp radius_fac_counter radius_com_counter patch_interaction]
-globals [interaction]
-
-
-to setup 
+;~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+; SETUP
+;~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+to setup
+  ;; Reset model
   clear-all
-  reset-ticks 
+  ;; Set random seed
   random-seed seed
-  setup-patches
+  ;; Set world dimensions
+  resize-world (world_max_xycor * -1) world_max_xycor (world_max_xycor * -1) world_max_xycor
+  set-patch-size round ((1 / mean (list world-width world-height)) * 500)
+  ;; Distribute initial patch states
+  setup-vegetation
+  ;; Store neighborhood patchsets in patch variables
+  setup-patchsets
+  ;; Reset tick counter
+  reset-ticks
 end
 
+to setup-vegetation
+ ;; Initialize vegetation patches:
+ let n_vegetation round (count patches * (VegCoverStart / 100))
+ if (n_vegetation > count patches) [set n_vegetation count patches]
 
-;; state of patches at the beginning (tick = 0)
-to setup-patches
+ ask n-of n_vegetation patches
+ [
+   set state 1 + random 3
+   if (paint != "none") [p_paint]
+ ]
+ ask patches
+ [
+   if (paint != "none") [p_paint]
+ ]
+end
+
+to p_vegetation-noise
+   let noise random (2 * disturbance + 1)
+   set noise noise - disturbance
+   set state state + noise
+   if (paint != "none") [p_paint]
+end
+
+to setup-patchsets
+  ;; Calculate coordinates for radii:
+  let xy_r0 patches-in-range radius_fac geometry
+  let xy_r1 patches-in-range (radius_fac + buffer) geometry
+  let xy_r2 patches-in-range (radius_fac + buffer + radius_com) geometry
+
+  ;; Calculate donut coordinates from these radii:
+  let xy_d0 xy_r0  ;; All coordinates from this first radius define the first donut
+  let xy_d1 filter [i -> not member? i xy_r0] xy_r1  ;; Filter the list from radius 1 to remove all coordinates that are already in the list radius 0
+  let xy_d2 filter [i -> not member? i xy_r1] xy_r2  ;; Filter the list from radius 2 to remove all coordinates that are already in the list radius 1
+
+  ;; Store donuts in patch variables (ps_fac for facilitation donut, ps_buf for buffer donut and ps_com for competition donut)
   ask patches
   [
-    set pcolor white
-    set state 0
-    ifelse VegCoverStart = 0
-    [stop]
-    [ifelse VegCoverStart = 100
-      [set state 1 + random 3 ]
-      
-     [if random 100 < VegCoverStart
-       [set state 1 + random 3]
-     ]
-    ]
-  ]
-  
-  ask patches 
-  [ 
-    set pcolor scale-color black (state * 10) 40 0
-    if state = 0 [set pcolor white] 
+    set ps_fac patches at-points xy_d0
+    set ps_buf patches at-points xy_d1
+    set ps_com patches at-points xy_d2
   ]
 end
 
-;; asking state of patches clockwise around center patch (*), radius per radius outwards
-;; undertaking "facilitation_calc" at inner radiuses
-;; undertaking "competition_calc" at outer radiuses
+to-report patches-in-range [radius geo]
+  ;; This procedure calculates general coordinate offsets based on either neumann or moore geometry within a given radius
+  ;; The procedure removes the center patch in the end before reporting the list of coordinate offsets
+  let result []
+  if (geo = "neumann-diamond") [set result [list pxcor pycor] of patches with [abs pxcor + abs pycor <= radius]]
+  if (geo = "moore-square") [set result [list pxcor pycor] of patches with [abs pxcor <= radius and abs pycor <= radius]]
+  report remove [0 0] result
+end
+
+
+;~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+; GO
+;~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 to go
-  
-  ask patches [
-    
-    set interaction 0
-    
-    set radius_fac_counter 1 ;;start of facilitation radius at r = 1, the first radius around the center patch (*) where x-temp,y-temp = 0
-    while [radius_fac_counter <= radius_fac] [ ;;opening first "big loop" for counting the facilitation radius until "radius_fac" (interface slider) is reached
-    
-     
-      set x_temp 0 + radius_fac_counter
-      set y_temp 0 + radius_fac_counter
-      while [x_temp > 0 - radius_fac_counter] [ ;;followed by 4 loops covering each patch in the relevant radius in order to undertake "facilitation_calc"
-        facilitation_calc  
-        set x_temp x_temp - 1
-      ]
-      
-      set x_temp 0 - radius_fac_counter
-      while [y_temp > 0 - radius_fac_counter] [ ;;2. loop
-       facilitation_calc  
-        set y_temp y_temp - 1
-      ]
-      
-      set y_temp 0 - radius_fac_counter
-      while [x_temp < 0 + radius_fac_counter] [ ;;3. loop
-      facilitation_calc   
-        set x_temp x_temp + 1
-      ]
-      
-      set x_temp 0 + radius_fac_counter
-      while [y_temp < 0 + radius_fac_counter] [ ;;4. loop
-      facilitation_calc  
-        set y_temp y_temp + 1
-      ]
-      set radius_fac_counter radius_fac_counter + 1 ;;closing first "big loop"
-    
+
+  ask patches
+  [
+    ;; Calculate facilitation and competition values from stored neighborhoods:
+    let fac sum [state * b] of ps_fac
+    let com ((sum [state * a] of ps_com)) * -1
+    ;; Sum and scale interactions:
+    set interaction (fac + com) * c
+    ;; Scale interaction to range -1..1 and shift this patches state after interaction
+    set state state + ifelse-value (interaction > U) [U][ifelse-value (interaction < L) [L][interaction]]
+    ;; add random noise
+    p_vegetation-noise
+    ;; Check state caps:
+    set state ifelse-value (state < 0) [0][ifelse-value (state > 3) [3][state]]
+    ;; Paint patches:
+    if (paint != "none") [p_paint]
   ]
-      
-     set radius_com_counter radius_fac + 1 ;;start of competition radius beyond the facilitation radius, consequenlty operating on a larger scale
-     
-     while [radius_com_counter <= radius_com + radius_fac] [ ;;opening second "big loop" for counting the competition radius until "radius_com" (interface slider) is reached
-       set x_temp 0 + radius_com_counter
-       set y_temp 0 + radius_com_counter
-       
-       while [x_temp > 0 - radius_com_counter] [ ;;followed by 4 loops covering each patch in the relevant radius in order to undertake "competition_calc"
-         competition_calc  
-         set x_temp x_temp - 1
-       ]
-       
-       set x_temp 0 - radius_com_counter
-       while [y_temp > 0 - radius_com_counter] [ ;;2. loop
-        competition_calc  
-         set y_temp y_temp - 1
-       ]
-       
-       set y_temp 0 - radius_com_counter
-       while [x_temp < 0 + radius_com_counter] [ ;;3. loop
-       competition_calc   
-         set x_temp x_temp + 1
-       ]
-       
-       set x_temp 0 + radius_com_counter
-       while [y_temp < 0 + radius_com_counter] [ ;;4. loop
-       competition_calc  
-         set y_temp y_temp + 1
-       ]
-       
-       
-       set radius_com_counter radius_com_counter + 1 ;;closing second "big loop"
-    ]
-   
-        
-     ;; fitting of interaction in order to get manageable patch interaction values
-    set interaction interaction * c
-    set patch_interaction interaction 
-     ;; fitting range of interaction -> interaction is ranging from -1 to +1 -> within one tick state can change between -1 and +1
-    if interaction > U [set interaction U]
-    if interaction < L [set interaction L]
-    
-     ;; shift this patches state after interaction
-    set state state + interaction
-    if state < 0 [set state 0]
-    if state > 3 [set state 3]
-    
-    ;;set colors for vegetation-view and patch_interaction-view
-    ifelse vegetation = True [ 
-      ifelse state = 0 
-      [set pcolor white] 
-      [set pcolor scale-color black (state * 10) 40 0]
-    ][ 
-      ifelse patch_interaction = 0 
-      [set pcolor white] 
-     [
-      ifelse patch_interaction > 0 
-       [set pcolor scale-color red (patch_interaction) 200 0]
-       
-       [set pcolor scale-color blue ( -1 * patch_interaction) 200 0]
-       ]
-    ]
-    
- 
-]
+  ;; Increase tick counter:
   tick
 end
 
-;; switch between vegetation-view and patch_interaction-view
-to draw
-   
-    ask patches [
-    ifelse vegetation = True [ 
-      ifelse state = 0 
-      [set pcolor white] 
-      [set pcolor scale-color black (state * 10) 40 0]
-    ][ 
-      ifelse patch_interaction = 0 
-      [set pcolor white] 
-     [
-       ifelse patch_interaction > 0 ;; blue competition, red faciliation
-       [set pcolor scale-color red (patch_interaction) 100 0]
-       
-       [set pcolor scale-color blue ( -1 * patch_interaction) 100 0]
-       ]
-    ]
-]
+to p_paint  ;; patch procedure
+  if (paint = "vegetation")
+  [
+    set pcolor ifelse-value (state = 0) [white][scale-color black (state * 10) 40 0]
+  ]
+  if (paint = "interaction")
+  [
+    set pcolor ifelse-value (interaction = 0) [white][ifelse-value (interaction > 0) [scale-color red (interaction) 200 0][scale-color blue ( -1 * interaction) 200 0]]
+  ]
 end
 
-
-to facilitation_calc
-  ask patch-at x_temp y_temp [
-  set interaction interaction + b * state
- ]
+to-report calc-vegetation-cover
+  let vegetation-cells count patches with [state > 0]
+  let n-cells count patches
+  let veg-cover vegetation-cells / n-cells
+  set vegetation-cover veg-cover
+  report veg-cover
 end
 
+to paint_donuts
+  ;; Procedure to visualize the three donuts:
+  ask one-of patches
+  [
+    set pcolor blue
+    ask ps_fac [set pcolor yellow]
+    ask ps_com [set pcolor red]
+    ask ps_buf [set pcolor orange]
+  ]
+end
 
-to competition_calc
-  ask patch-at x_temp y_temp [
-  set interaction interaction - a * state 
- ]
+to paint_patches
+  ;; Procedure to repain all patches
+  ask patches
+  [
+    p_paint
+  ]
 end
 @#$#@#$#@
 GRAPHICS-WINDOW
-688
-17
-1198
-548
+355
+45
+868
+559
 -1
 -1
-1.0
+5.0
 1
 10
 1
@@ -196,10 +166,10 @@ GRAPHICS-WINDOW
 1
 1
 1
-0
-499
-0
-499
+-50
+50
+-50
+50
 1
 1
 1
@@ -207,10 +177,10 @@ ticks
 30.0
 
 BUTTON
-14
-34
-77
-67
+5
+30
+170
+63
 NIL
 setup
 NIL
@@ -224,13 +194,13 @@ NIL
 1
 
 BUTTON
-15
-78
-107
-111
-Start_Stop
+5
+100
+85
+133
+go once
 go
-T
+NIL
 1
 T
 OBSERVER
@@ -240,70 +210,55 @@ NIL
 NIL
 1
 
-SLIDER
-191
-74
-363
-107
-VegCoverStart
-VegCoverStart
-0
-100
-70
-1
-1
-NIL
-HORIZONTAL
-
 INPUTBOX
-18
-169
-68
-229
+10
+570
+60
+630
 a
-1
+1.0
 1
 0
 Number
 
 INPUTBOX
-18
-238
-68
-298
+60
+570
+110
+630
 b
-3.6
+4.4
 1
 0
 Number
 
 INPUTBOX
-18
-306
-68
-366
+10
+630
+60
+690
 L
--1
+-1.0
 1
 0
 Number
 
 INPUTBOX
-18
-374
-68
-434
+60
+630
+110
+690
 U
-1
+1.0
 1
 0
 Number
 
 INPUTBOX
-17
-443
-67
-503
+110
+570
+160
+630
 c
 0.4
 1
@@ -311,24 +266,24 @@ c
 Number
 
 INPUTBOX
-18
-511
-68
-571
+5
+225
+175
+285
 seed
-1
+5.0
 1
 0
 Number
 
 BUTTON
-16
-122
-93
-155
-Go once
+5
+65
+170
+98
+go loop
 go
-NIL
+T
 1
 T
 OBSERVER
@@ -338,152 +293,63 @@ NIL
 NIL
 1
 
-TEXTBOX
-478
-53
-628
-179
-INTERACTION MATRIX \n     \n       -a -a -a -a -a \n       -a  b  b  b -a \n       -a  b  *  b -a \n       -a  b  b  b -a \n       -a -a -a -a -a \n
-12
-15.0
+CHOOSER
+5
+155
+170
+200
+paint
+paint
+"none" "vegetation" "interaction"
+2
+
+CHOOSER
+5
+385
+175
+430
+geometry
+geometry
+"neumann-diamond" "moore-square"
 1
 
 SLIDER
-193
-237
-365
-270
-radius_fac
-radius_fac
+5
+510
+175
+543
+radius_com
+radius_com
 0
-100
-2.5
-0.5
+5
+2.0
+1
 1
 NIL
 HORIZONTAL
 
 SLIDER
-193
-169
-365
-202
-radius_com
-radius_com
+5
+440
+175
+473
+radius_fac
+radius_fac
 0
-100
-2.5
-0.5
+5
+2.0
+1
 1
 NIL
 HORIZONTAL
-
-PLOT
-482
-399
-682
-549
-Plot
-Ticks
-Bare Area (%)
-0.0
-100.0
-0.0
-100.0
-false
-false
-"" ""
-PENS
-"default" 1.0 0 -5825686 true "" "plot (count patches with [pcolor = white] / count patches * 100 )"
-
-TEXTBOX
-194
-210
-392
-240
-radius_com = radius_com + radius_fac
-11
-0.0
-1
-
-TEXTBOX
-76
-211
-226
-229
-Competition factor
-11
-0.0
-1
-
-TEXTBOX
-76
-282
-226
-300
-Facilitation factor
-11
-0.0
-1
-
-TEXTBOX
-74
-335
-184
-363
-Lower limit of state changes [-1]
-11
-0.0
-1
-
-TEXTBOX
-74
-403
-194
-431
-Upper limit of state changes [1]
-11
-0.0
-1
-
-TEXTBOX
-75
-471
-212
-499
-Calibration factor for transition [0.4]
-11
-0.0
-1
-
-TEXTBOX
-78
-527
-187
-569
-Seed for pseudo random generator [1,2,3,4,5]
-11
-0.0
-1
-
-SWITCH
-502
-342
-601
-375
-vegetation
-vegetation
-1
-1
--1000
 
 BUTTON
-613
-342
-676
-375
-Draw
-draw
+85
+100
+170
+133
+paint_donuts
+paint_donuts
 NIL
 1
 T
@@ -492,37 +358,244 @@ NIL
 NIL
 NIL
 NIL
+1
+
+SLIDER
+5
+290
+175
+323
+world_max_xycor
+world_max_xycor
+10
+250
+50.0
+1
+1
+NIL
+HORIZONTAL
+
+SLIDER
+5
+325
+175
+358
+VegCoverStart
+VegCoverStart
 0
+100
+1.0
+1
+1
+NIL
+HORIZONTAL
+
+TEXTBOX
+10
+10
+160
+28
+Control Model
+11
+0.0
+1
+
+TEXTBOX
+10
+210
+160
+228
+Setup Parameter
+11
+0.0
+1
+
+TEXTBOX
+10
+140
+160
+158
+Output
+11
+0.0
+1
+
+TEXTBOX
+5
+365
+155
+383
+Radius Parameter
+11
+0.0
+1
+
+TEXTBOX
+10
+550
+160
+568
+Interaction Parameter
+11
+0.0
+1
+
+SLIDER
+5
+475
+175
+508
+buffer
+buffer
+0
+5
+1.0
+1
+1
+NIL
+HORIZONTAL
+
+BUTTON
+355
+10
+410
+43
+zoom
+set-patch-size patch-size + 1
+NIL
+1
+T
+OBSERVER
+NIL
++
+NIL
+NIL
+1
+
+BUTTON
+410
+10
+465
+43
+zoom
+set-patch-size patch-size - 1
+NIL
+1
+T
+OBSERVER
+NIL
+-
+NIL
+NIL
+1
+
+TEXTBOX
+190
+465
+305
+561
+INTERACTION MATRIX \n       -a -a -a -a -a \n       -a  b  b  b -a \n       -a  b  *  b -a \n       -a  b  b  b -a \n       -a -a -a -a -a 
+10
+14.0
+1
+
+TEXTBOX
+180
+155
+330
+200
+Choose paint procedure:\n- vegetation/non-vegetation map\n- facilitation/competition map
+10
+0.0
+1
+
+TEXTBOX
+180
+250
+330
+276
+Choose random number generator seed\n
+10
+0.0
+1
+
+TEXTBOX
+180
+300
+310
+318
+Set world size
+10
+0.0
+1
+
+TEXTBOX
+180
+335
+330
+353
+Set initial vegetation cover
+10
+0.0
+1
+
+TEXTBOX
+180
+380
+330
+431
+Set type of neighborhood geometry:\n- moore -> square shaped\n- neumann -> diamond shaped
+10
+0.0
+1
+
+TEXTBOX
+180
+450
+330
+468
+Define radii for interactions:
+10
+0.0
+1
+
+TEXTBOX
+170
+570
+330
+661
+Define interaction parameter:\na = competition factor\nb = facilitation factor\nc = calibration factor for transition\nL = lower limit of state changes\nU = upper limit of state changes
+10
+0.0
+1
+
+SLIDER
+175
+65
+347
+98
+disturbance
+disturbance
+0
+10
+0.0
+1
+1
+NIL
+HORIZONTAL
 
 @#$#@#$#@
 ## WHAT IS IT?
 
 (a general understanding of what the model is trying to show or explain)
 
-The model shows the development/self-organization of vegetation under isotropic conditions.
-White patches represent bare soil (they own the state 0 for white).
-Dark shades of grey represent vegetation (they own a state between >0 and 3 for shades of grey, while state 3 represents black).
-Depending on the adjustment of the parameters the model creates different patterns as spots, labyrinths or gaps. 
-
 ## HOW IT WORKS
 
 (what rules the agents use to create the overall behavior of the model)
 
-The underlying mechanism is a cellular automaton. Each patch acts as a center of this automaton surrounded by two different kind of interaction radiuses. 
-The facilitation radius operating on a local scale facilitates vegetation growth. 
-On the contrary the competition radius operating on a larger scale inhibits vegetation growth.
-Each patch within the facilitation radius has a positive influence on the center patch while each patch within the competition radius has a negative influence on the center. 
-Patch values within the different kind of radiuses are added. This results in a total positive value for patches within the facilitation radius and a total negative value for patches within the competition radius. If the negative value is greater than the positive value the center patch state is lowered (by max -1).
-Is the positive value exceeding the negative value the center patch state is hightened (by max +1).
-Patches vary between different kind of states between 0 and 3 [0,3].
-Patches owning a negative interaction value are set to state = 0. 
-Patches owning a positive interaction value are set to a state between > 0 and <= 3 depending on the influence of the patches within the radiuses described above. 
-
 ## HOW TO USE IT
 
 (how to use the model, including a description of each of the items in the Interface tab)
-
-"a" regulates the strenght of facilitation while "b" is regulating the strenght of inhibition. The sliders radius_com and radius_fac regulate the operating distance of the corresponding interaction. Note that the competitive interaction is always operating spatially behind the facilitative interaction.  
 
 ## THINGS TO NOTICE
 
@@ -852,68 +925,105 @@ false
 0
 Polygon -7500403 true true 270 75 225 30 30 225 75 270
 Polygon -7500403 true true 30 75 75 30 270 225 225 270
-
 @#$#@#$#@
-NetLogo 5.1.0
+NetLogo 6.0.4
 @#$#@#$#@
 @#$#@#$#@
 @#$#@#$#@
 <experiments>
-  <experiment name="RäumlicheVerteilung" repetitions="1" runMetricsEveryStep="true">
+  <experiment name="ParameterScan" repetitions="1" runMetricsEveryStep="false">
     <setup>setup</setup>
     <go>go</go>
-    <final>export-view (word "parasweep_"a "-" b "-" radius_com "-" VegCoverStart "-" L "-" seed "-" H "-" radius_fac "-" c".png")</final>
-    <timeLimit steps="5"/>
-    <steppedValueSet variable="a" first="1" step="2" last="9"/>
-    <steppedValueSet variable="b" first="1" step="2" last="9"/>
-    <steppedValueSet variable="radius_com" first="1" step="2" last="9"/>
-    <enumeratedValueSet variable="VegCoverStart">
-      <value value="60"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="L">
-      <value value="-1"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="seed">
-      <value value="1"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="H">
-      <value value="1"/>
-    </enumeratedValueSet>
-    <steppedValueSet variable="radius_fac" first="1" step="2" last="9"/>
+    <final>export-view (word "parasweep_"paint "-" a "-" b "-" radius_com "-" radius_fac "-" buffer "-" geometry "-" VegCoverStart "-" L "-" seed "-" U "-" radius_fac "-" c".png")
+set paint "interaction"
+paint_patches
+export-view (word "parasweep_"paint "-" a "-" b "-" radius_com "-" radius_fac "-" buffer "-" geometry "-" VegCoverStart "-" L "-" seed "-" U "-" radius_fac "-" c".png")</final>
+    <timeLimit steps="50"/>
     <enumeratedValueSet variable="c">
       <value value="0.4"/>
     </enumeratedValueSet>
-  </experiment>
-  <experiment name="Feenkreise" repetitions="1" runMetricsEveryStep="true">
-    <setup>setup</setup>
-    <go>go</go>
-    <final>export-interface (word "parasweep_" a "-" b "-" radius_com "-" VegCoverStart "-" L "-" Seed "-" H "-" radius_fac "-" c".png")</final>
-    <timeLimit steps="6"/>
-    <enumeratedValueSet variable="a">
+    <enumeratedValueSet variable="geometry">
+      <value value="&quot;moore-square&quot;"/>
+      <value value="&quot;neumann-diamond&quot;"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="world_max_xycor">
+      <value value="50"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="VegCoverStart">
+      <value value="15"/>
+    </enumeratedValueSet>
+    <steppedValueSet variable="buffer" first="0" step="1" last="3"/>
+    <enumeratedValueSet variable="U">
       <value value="1"/>
     </enumeratedValueSet>
-    <steppedValueSet variable="VegCoverStart" first="60" step="1" last="70"/>
-    <enumeratedValueSet variable="radius_fac">
-      <value value="3"/>
+    <steppedValueSet variable="radius_com" first="0" step="1" last="3"/>
+    <enumeratedValueSet variable="seed">
+      <value value="1"/>
     </enumeratedValueSet>
-    <enumeratedValueSet variable="H">
+    <steppedValueSet variable="radius_fac" first="0" step="1" last="3"/>
+    <enumeratedValueSet variable="paint">
+      <value value="&quot;vegetation&quot;"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="a">
       <value value="1"/>
     </enumeratedValueSet>
     <enumeratedValueSet variable="L">
       <value value="-1"/>
     </enumeratedValueSet>
-    <enumeratedValueSet variable="vegetation">
-      <value value="true"/>
+    <steppedValueSet variable="b" first="0.3" step="0.3" last="10.8"/>
+  </experiment>
+  <experiment name="Iterate over b" repetitions="1" runMetricsEveryStep="false">
+    <setup>setup</setup>
+    <go>go</go>
+    <final>export-view (word "parasweep_"paint "-"  vegetation-cover "-" a "-" b "-" radius_com "-" radius_fac "-" buffer "-" geometry "-" VegCoverStart "-" L "-" seed "-" U "-" radius_fac "-" c".png")
+set paint "interaction"
+paint_patches
+export-view (word "parasweep_"paint "-"  vegetation-cover "-" a "-" b "-" radius_com "-" radius_fac "-" buffer "-" geometry "-" VegCoverStart "-" L "-" seed "-" U "-" radius_fac "-" c".png")</final>
+    <timeLimit steps="200"/>
+    <metric>calc-vegetation-cover</metric>
+    <enumeratedValueSet variable="VegCoverStart">
+      <value value="1"/>
     </enumeratedValueSet>
-    <enumeratedValueSet variable="c">
-      <value value="0.1"/>
+    <enumeratedValueSet variable="buffer">
+      <value value="1"/>
     </enumeratedValueSet>
     <enumeratedValueSet variable="radius_com">
-      <value value="3"/>
+      <value value="2"/>
     </enumeratedValueSet>
-    <steppedValueSet variable="b" first="3" step="0.1" last="3.5"/>
     <enumeratedValueSet variable="seed">
       <value value="1"/>
+      <value value="2"/>
+      <value value="3"/>
+      <value value="4"/>
+      <value value="5"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="radius_fac">
+      <value value="2"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="paint">
+      <value value="&quot;vegetation&quot;"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="a">
+      <value value="1"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="L">
+      <value value="-1"/>
+    </enumeratedValueSet>
+    <steppedValueSet variable="b" first="0" step="0.05" last="5"/>
+    <enumeratedValueSet variable="c">
+      <value value="0.4"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="geometry">
+      <value value="&quot;moore-square&quot;"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="world_max_xycor">
+      <value value="50"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="U">
+      <value value="1"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="disturbance">
+      <value value="0"/>
     </enumeratedValueSet>
   </experiment>
 </experiments>
@@ -929,7 +1039,6 @@ true
 0
 Line -7500403 true 150 150 90 180
 Line -7500403 true 150 150 210 180
-
 @#$#@#$#@
-0
+1
 @#$#@#$#@
