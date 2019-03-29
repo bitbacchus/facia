@@ -8,6 +8,12 @@ globals
   U
   a
   b
+  radius_fac
+  radius_com
+  buffer
+  geometry
+  interaction_max
+  interaction_min
 ]
 patches-own
 [
@@ -26,11 +32,7 @@ to setup
   clear-all
   ;; Set random seed
   random-seed seed
-  ;; Calculate parameters a and b
-  set a 1 / facilitation-competition-ratio
-  set b 1
-  set U 1
-  set L -1
+  set_constants
   ;; Set world dimensions
   resize-world (world_max_xycor * -1) world_max_xycor (world_max_xycor * -1) world_max_xycor
   set-patch-size round ((1 / mean (list world-width world-height)) * 500)
@@ -58,13 +60,17 @@ to setup-vegetation
  ]
 end
 
-to p_vegetation-noise
-   let noise random-float disturbance
-   set noise 2 * noise - disturbance
-   set state state + noise
-   if (state < 0)
-     [set state 0]
-   if (paint != "none") [p_paint]
+to set_constants
+  ;; Calculate parameters a and b
+  set a 1 / facilitation-competition-ratio ;; competition parameter
+  set b 1 ;; facilitation parameter
+  set U 1 ;; upper limit of vegetation change per tick
+  set L -1 ;; lower limit of vegetation change per tick
+  ;; the radii can be visualized with the paint_donuts button
+  set radius_fac 2 ;; vegetation within this radius has a facilitation effect on the focal cell vegetation
+  set buffer 1 ;; a neutral zone between competition and facilitation
+  set radius_com 2 ;; vegetation within this radius has a competition effect on the focal cell vegetation
+  set geometry "moore-square" ;; "circle" "neumann-diamond" or "moore-square"
 end
 
 to setup-patchsets
@@ -93,6 +99,7 @@ to-report patches-in-range [radius geo]
   let result []
   if (geo = "neumann-diamond") [set result [list pxcor pycor] of patches with [abs pxcor + abs pycor <= radius]]
   if (geo = "moore-square") [set result [list pxcor pycor] of patches with [abs pxcor <= radius and abs pycor <= radius]]
+  if (geo = "circle") [set result [list pxcor pycor] of patches with [sqrt (pxcor ^ 2 + pycor ^ 2) <= radius]]
   report remove [0 0] result
 end
 
@@ -141,6 +148,12 @@ to p_paint  ;; patch procedure
   [
     set pcolor ifelse-value (interaction = 0) [white][ifelse-value (interaction > 0) [scale-color red (interaction) 200 0][scale-color blue ( -1 * interaction) 200 0]]
   ]
+end
+
+to p_vegetation-noise
+   let noise random-float disturbance
+   set noise 2 * noise - disturbance
+   set state state + noise
 end
 
 to road-disturbance
@@ -271,47 +284,7 @@ CHOOSER
 paint
 paint
 "none" "vegetation" "interaction"
-1
-
-CHOOSER
-5
-385
-175
-430
-geometry
-geometry
-"neumann-diamond" "moore-square"
-1
-
-SLIDER
-5
-510
-175
-543
-radius_com
-radius_com
-0
-5
-2.0
-1
-1
-NIL
-HORIZONTAL
-
-SLIDER
-5
-440
-175
-473
-radius_fac
-radius_fac
-0
-5
-2.0
-1
-1
-NIL
-HORIZONTAL
+2
 
 BUTTON
 85
@@ -328,7 +301,7 @@ NIL
 NIL
 NIL
 NIL
-1
+0
 
 SLIDER
 5
@@ -391,39 +364,14 @@ Output
 1
 
 TEXTBOX
-5
-365
-155
-383
-Radius Parameter
-11
-0.0
-1
-
-TEXTBOX
-10
-550
-160
-568
+180
+400
+330
+418
 Interaction Parameter
 11
 0.0
 1
-
-SLIDER
-5
-475
-175
-508
-buffer
-buffer
-0
-5
-1.0
-1
-1
-NIL
-HORIZONTAL
 
 BUTTON
 355
@@ -457,16 +405,6 @@ NIL
 -
 NIL
 NIL
-1
-
-TEXTBOX
-190
-465
-305
-561
-INTERACTION MATRIX \n       -a -a -a -a -a \n       -a  b  b  b -a \n       -a  b  *  b -a \n       -a  b  b  b -a \n       -a -a -a -a -a 
-10
-14.0
 1
 
 TEXTBOX
@@ -509,31 +447,11 @@ Set initial vegetation cover
 0.0
 1
 
-TEXTBOX
-180
-380
-330
-431
-Set type of neighborhood geometry:\n- moore -> square shaped\n- neumann -> diamond shaped
-10
-0.0
-1
-
-TEXTBOX
-180
-450
-330
-468
-Define radii for interactions:
-10
-0.0
-1
-
 SLIDER
+5
+360
 175
-65
-347
-98
+393
 disturbance
 disturbance
 0
@@ -546,35 +464,35 @@ HORIZONTAL
 
 SLIDER
 5
-570
-302
-603
+395
+175
+428
 facilitation-competition-ratio
 facilitation-competition-ratio
 1
-5
-4.57
+20
+4.66
 .01
 1
 NIL
 HORIZONTAL
 
 SWITCH
-10
-620
-113
-653
+5
+430
+108
+463
 road
 road
-0
+1
 1
 -1000
 
 SLIDER
-10
-655
-182
-688
+5
+465
+177
+498
 road_intensity
 road_intensity
 0
@@ -584,6 +502,16 @@ road_intensity
 1
 NIL
 HORIZONTAL
+
+TEXTBOX
+180
+360
+330
+401
+Set random disturbance (noise) level
+10
+0.0
+1
 
 @#$#@#$#@
 ## WHAT IS IT?
