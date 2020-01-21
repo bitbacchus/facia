@@ -21,7 +21,9 @@ to setup
   ;; Reset model
   clear-all
   ;; Set random seed
-  ; random-seed seed ;; commented for nlrx
+  if use-seed [
+    random-seed seed
+  ]
   ;; Set world dimensions
   resize-world (world_max_xycor * -1) world_max_xycor (world_max_xycor * -1) world_max_xycor
   set-patch-size round ((1 / mean (list world-width world-height)) * 500)
