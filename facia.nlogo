@@ -58,6 +58,18 @@ to p_vegetation-noise
    if (paint != "none") [p_paint]
 end
 
+to road-disturbance
+  ;; Maintain a road
+  if (road)
+  [
+    ask patches with [pycor = 0 or pycor = 1]
+    [
+      set state state - road_intensity
+      if state < 0 [set state 0]
+    ]
+  ]
+end
+
 to setup-patchsets
   ;; Calculate coordinates for radii:
   let xy_r0 patches-in-range radius_fac geometry
@@ -109,7 +121,7 @@ to go
     ;; Paint patches:
     if (paint != "none") [p_paint]
   ]
-
+  road-disturbance
   ;; Increase tick counter:
   tick
 end
@@ -156,11 +168,11 @@ end
 GRAPHICS-WINDOW
 355
 45
-1356
-1055
+868
+559
 -1
 -1
-0.025
+5.0
 1
 10
 1
@@ -170,10 +182,10 @@ GRAPHICS-WINDOW
 1
 1
 1
--500
-500
--500
-500
+-50
+50
+-50
+50
 1
 1
 1
@@ -351,7 +363,7 @@ world_max_xycor
 world_max_xycor
 10
 500
-250.0
+50.0
 1
 1
 NIL
@@ -587,6 +599,32 @@ use-seed
 1
 1
 -1000
+
+SWITCH
+10
+705
+113
+738
+road
+road
+1
+1
+-1000
+
+SLIDER
+10
+745
+182
+778
+road_intensity
+road_intensity
+0
+3
+1.0
+.1
+1
+NIL
+HORIZONTAL
 
 @#$#@#$#@
 ## WHAT IS IT?
