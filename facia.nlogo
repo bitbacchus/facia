@@ -4,16 +4,6 @@
 globals
 [
   vegetation-cover
-  L
-  U
-  a
-  b
-  radius_fac
-  radius_com
-  buffer
-  geometry
-  interaction_max
-  interaction_min
 ]
 patches-own
 [
@@ -31,8 +21,9 @@ to setup
   ;; Reset model
   clear-all
   ;; Set random seed
-  random-seed seed
-  set_constants
+  if use-seed [
+    random-seed seed
+  ]
   ;; Set world dimensions
   resize-world (world_max_xycor * -1) world_max_xycor (world_max_xycor * -1) world_max_xycor
   set-patch-size round ((1 / mean (list world-width world-height)) * 500)
@@ -60,24 +51,32 @@ to setup-vegetation
  ]
 end
 
-to set_constants
-  ;; Calculate parameters a and b
-  set a 1 / facilitation-competition-ratio ;; competition parameter
-  set b 1 ;; facilitation parameter
-  set U 1 ;; upper limit of vegetation change per tick
-  set L -1 ;; lower limit of vegetation change per tick
-  ;; the radii can be visualized with the paint_donuts button
-  set radius_fac 2 ;; vegetation within this radius has a facilitation effect on the focal cell vegetation
-  set buffer 1 ;; a neutral zone between competition and facilitation
-  set radius_com 2 ;; vegetation within this radius has a competition effect on the focal cell vegetation
-  set geometry "moore-square" ;; "circle" "neumann-diamond" or "moore-square"
+to p_vegetation-noise
+   let noise random-float disturbance
+   set noise 2 * noise - disturbance
+   set state state + noise
+   if (state < 0)
+     [set state 0]
+   if (paint != "none") [p_paint]
+end
+
+to road-disturbance
+  ;; Maintain a road
+  if (road)
+  [
+    ask patches with [pycor = 0 or pycor = 1]
+    [
+      set state state - road_intensity
+      if state < 0 [set state 0]
+    ]
+  ]
 end
 
 to setup-patchsets
   ;; Calculate coordinates for radii:
   let xy_r0 patches-in-range radius_fac geometry
-  let xy_r1 patches-in-range (radius_fac + buffer) geometry
-  let xy_r2 patches-in-range (radius_fac + buffer + radius_com) geometry
+  let xy_r1 patches-in-range (buffer) geometry
+  let xy_r2 patches-in-range (radius_com) geometry
 
   ;; Calculate donut coordinates from these radii:
   let xy_d0 xy_r0  ;; All coordinates from this first radius define the first donut
@@ -99,7 +98,6 @@ to-report patches-in-range [radius geo]
   let result []
   if (geo = "neumann-diamond") [set result [list pxcor pycor] of patches with [abs pxcor + abs pycor <= radius]]
   if (geo = "moore-square") [set result [list pxcor pycor] of patches with [abs pxcor <= radius and abs pycor <= radius]]
-  if (geo = "circle") [set result [list pxcor pycor] of patches with [sqrt (pxcor ^ 2 + pycor ^ 2) <= radius]]
   report remove [0 0] result
 end
 
@@ -112,17 +110,21 @@ to go
   ask patches
   [
     ;; Calculate facilitation and competition values from stored neighborhoods:
-    let fac sum [state * b] of ps_fac
-    let com ((sum [state * a] of ps_com)) * -1
-    ;; Sum and scale interactions:
-    set interaction (fac + com)
-    ;; Scale interaction to range -1..1 and shift this patches state after interaction
-    set state state + ifelse-value (interaction > U) [U][ifelse-value (interaction < L) [L][interaction]]
+    let fac sum [state * f] of ps_fac
+    ifelse (fac = 0) [
+      set state 0 ;; dies w/o vegetation around
+    ][
+      let buf sum [state * b] of ps_buf
+      let com sum [state * c] of ps_com
+      ;; Sum and scale interactions:
+      set interaction (fac + buf - com)
+      ;; Scale interaction to range -1..1 and shift this patches state after interaction
+      set state state + ifelse-value (interaction > U) [U][ifelse-value (interaction < L) [L][interaction]]
+    ]
     ;; add random noise
     p_vegetation-noise
     ;; Check state caps:
     set state ifelse-value (state < 0) [0][ifelse-value (state > 3) [3][state]]
-
     ;; Paint patches:
     if (paint != "none") [p_paint]
   ]
@@ -150,32 +152,15 @@ to p_paint  ;; patch procedure
   ]
 end
 
-to p_vegetation-noise
-   let noise random-float disturbance
-   set noise 2 * noise - disturbance
-   set state state + noise
-end
-
-to road-disturbance
-  ;; Maintain a road
-  if (road)
-  [
-    ask patches with [pycor = 0 or pycor = 1]
-    [
-      set state state - road_intensity
-      if state < 0 [set state 0]
-    ]
-  ]
-end
 
 to paint_donuts
   ;; Procedure to visualize the three donuts:
   ask one-of patches
   [
     set pcolor blue
-    ask ps_fac [set pcolor yellow]
     ask ps_com [set pcolor red]
     ask ps_buf [set pcolor orange]
+    ask ps_fac [set pcolor yellow]
   ]
 end
 
@@ -190,11 +175,11 @@ end
 GRAPHICS-WINDOW
 355
 45
-868
-559
+873
+564
 -1
 -1
-5.0
+10.0
 1
 10
 1
@@ -204,10 +189,10 @@ GRAPHICS-WINDOW
 1
 1
 1
--50
-50
--50
-50
+-25
+25
+-25
+25
 1
 1
 1
@@ -249,11 +234,44 @@ NIL
 1
 
 INPUTBOX
-5
-225
-175
-285
-seed
+108
+567
+158
+627
+c
+1.0
+1
+0
+Number
+
+INPUTBOX
+59
+567
+109
+627
+b
+0.0
+1
+0
+Number
+
+INPUTBOX
+10
+630
+60
+690
+L
+-1.0
+1
+0
+Number
+
+INPUTBOX
+60
+630
+110
+690
+U
 1.0
 1
 0
@@ -284,7 +302,47 @@ CHOOSER
 paint
 paint
 "none" "vegetation" "interaction"
-2
+1
+
+CHOOSER
+5
+385
+175
+430
+geometry
+geometry
+"neumann-diamond" "moore-square"
+1
+
+SLIDER
+5
+510
+175
+543
+radius_com
+radius_com
+0
+5
+5.0
+1
+1
+NIL
+HORIZONTAL
+
+SLIDER
+5
+440
+175
+473
+radius_fac
+radius_fac
+0
+5
+2.0
+1
+1
+NIL
+HORIZONTAL
 
 BUTTON
 85
@@ -301,7 +359,7 @@ NIL
 NIL
 NIL
 NIL
-0
+1
 
 SLIDER
 5
@@ -311,8 +369,8 @@ SLIDER
 world_max_xycor
 world_max_xycor
 10
-250
-50.0
+500
+25.0
 1
 1
 NIL
@@ -364,14 +422,39 @@ Output
 1
 
 TEXTBOX
-180
-400
-330
-418
+5
+365
+155
+383
+Radius Parameter
+11
+0.0
+1
+
+TEXTBOX
+10
+550
+160
+568
 Interaction Parameter
 11
 0.0
 1
+
+SLIDER
+5
+475
+175
+508
+buffer
+buffer
+0
+5
+3.0
+1
+1
+NIL
+HORIZONTAL
 
 BUTTON
 355
@@ -408,10 +491,20 @@ NIL
 1
 
 TEXTBOX
+190
+465
+305
+561
+INTERACTION MATRIX \n       -a -a -a -a -a \n       -a  b  b  b -a \n       -a  b  *  b -a \n       -a  b  b  b -a \n       -a -a -a -a -a 
+10
+14.0
+1
+
+TEXTBOX
 180
 155
 330
-215
+200
 Choose paint procedure:\n- vegetation/non-vegetation map\n- facilitation/competition map
 10
 0.0
@@ -419,10 +512,10 @@ Choose paint procedure:\n- vegetation/non-vegetation map\n- facilitation/competi
 
 TEXTBOX
 180
-250
+245
 330
-276
-Choose random number generator seed\n
+281
+Choose random number generator seed (switch-off for random seed)\n
 10
 0.0
 1
@@ -447,41 +540,78 @@ Set initial vegetation cover
 0.0
 1
 
+TEXTBOX
+180
+380
+330
+431
+Set type of neighborhood geometry:\n- moore -> square shaped\n- neumann -> diamond shaped
+10
+0.0
+1
+
+TEXTBOX
+180
+450
+330
+468
+Define radii for interactions:
+10
+0.0
+1
+
+TEXTBOX
+170
+570
+330
+664
+Define interaction parameter:\nf = facilitation factor\nb = buffer factor\nc = competition factor\nL = lower limit of state changes\nU = upper limit of state changes
+10
+0.0
+1
+
 SLIDER
-5
-360
 175
-393
+65
+347
+98
 disturbance
 disturbance
 0
-10
-1.0
+3
+0.1
 .1
 1
 NIL
 HORIZONTAL
 
-SLIDER
+INPUTBOX
 5
-395
-175
-428
-facilitation-competition-ratio
-facilitation-competition-ratio
+225
+55
+285
+seed
+9.0
 1
-20
-4.66
-.01
-1
-NIL
-HORIZONTAL
+0
+Number
 
 SWITCH
-5
-430
-108
-463
+55
+250
+172
+283
+use-seed
+use-seed
+1
+1
+-1000
+
+SWITCH
+10
+705
+113
+738
 road
 road
 1
@@ -489,10 +619,10 @@ road
 -1000
 
 SLIDER
-5
-465
-177
-498
+10
+745
+182
+778
 road_intensity
 road_intensity
 0
@@ -503,15 +633,16 @@ road_intensity
 NIL
 HORIZONTAL
 
-TEXTBOX
-180
-360
-330
-401
-Set random disturbance (noise) level
+INPUTBOX
 10
-0.0
+567
+60
+627
+f
+4.5
 1
+0
+Number
 
 @#$#@#$#@
 ## WHAT IS IT?
@@ -855,7 +986,7 @@ false
 Polygon -7500403 true true 270 75 225 30 30 225 75 270
 Polygon -7500403 true true 30 75 75 30 270 225 225 270
 @#$#@#$#@
-NetLogo 6.0.4
+NetLogo 6.1.1
 @#$#@#$#@
 @#$#@#$#@
 @#$#@#$#@
