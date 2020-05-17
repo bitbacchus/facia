@@ -110,12 +110,17 @@ to go
   ask patches
   [
     ;; Calculate facilitation and competition values from stored neighborhoods:
-    let fac sum [state * b] of ps_fac
-    let com ((sum [state * a] of ps_com)) * -1
-    ;; Sum and scale interactions:
-    set interaction (fac + com)
-    ;; Scale interaction to range -1..1 and shift this patches state after interaction
-    set state state + ifelse-value (interaction > U) [U][ifelse-value (interaction < L) [L][interaction]]
+    let fac sum [state * f] of ps_fac
+    ifelse (fac = 0) [
+      set state 0 ;; dies w/o vegetation around
+    ][
+      let buf sum [state * b] of ps_buf
+      let com sum [state * c] of ps_com
+      ;; Sum and scale interactions:
+      set interaction (fac + buf - com)
+      ;; Scale interaction to range -1..1 and shift this patches state after interaction
+      set state state + ifelse-value (interaction > U) [U][ifelse-value (interaction < L) [L][interaction]]
+    ]
     ;; add random noise
     p_vegetation-noise
     ;; Check state caps:
@@ -153,9 +158,9 @@ to paint_donuts
   ask one-of patches
   [
     set pcolor blue
-    ask ps_fac [set pcolor yellow]
     ask ps_com [set pcolor red]
     ask ps_buf [set pcolor orange]
+    ask ps_fac [set pcolor yellow]
   ]
 end
 
@@ -170,11 +175,11 @@ end
 GRAPHICS-WINDOW
 355
 45
-868
-559
+873
+564
 -1
 -1
-5.0
+10.0
 1
 10
 1
@@ -184,10 +189,10 @@ GRAPHICS-WINDOW
 1
 1
 1
--50
-50
--50
-50
+-25
+25
+-25
+25
 1
 1
 1
@@ -229,23 +234,23 @@ NIL
 1
 
 INPUTBOX
-10
-570
-60
-630
-a
-0.2222222222222222
+108
+567
+158
+627
+c
+1.0
 1
 0
 Number
 
 INPUTBOX
-60
-570
-110
-630
+59
+567
+109
+627
 b
-1.0
+0.0
 1
 0
 Number
@@ -365,7 +370,7 @@ world_max_xycor
 world_max_xycor
 10
 500
-50.0
+25.0
 1
 1
 NIL
@@ -559,8 +564,8 @@ TEXTBOX
 170
 570
 330
-661
-Define interaction parameter:\na = competition factor\nb = facilitation factor\nL = lower limit of state changes\nU = upper limit of state changes
+664
+Define interaction parameter:\nf = facilitation factor\nb = buffer factor\nc = competition factor\nL = lower limit of state changes\nU = upper limit of state changes
 10
 0.0
 1
@@ -573,8 +578,8 @@ SLIDER
 disturbance
 disturbance
 0
-10
-1.0
+3
+0.1
 .1
 1
 NIL
@@ -627,6 +632,17 @@ road_intensity
 1
 NIL
 HORIZONTAL
+
+INPUTBOX
+10
+567
+60
+627
+f
+4.5
+1
+0
+Number
 
 @#$#@#$#@
 ## WHAT IS IT?
