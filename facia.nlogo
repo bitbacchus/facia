@@ -75,8 +75,8 @@ end
 to setup-patchsets
   ;; Calculate coordinates for radii:
   let xy_r0 patches-in-range radius_fac geometry
-  let xy_r1 patches-in-range (buffer) geometry
-  let xy_r2 patches-in-range (radius_com) geometry
+  let xy_r1 patches-in-range (radius_fac + buffer) geometry
+  let xy_r2 patches-in-range (radius_fac + buffer + radius_com) geometry
 
   ;; Calculate donut coordinates from these radii:
   let xy_d0 xy_r0  ;; All coordinates from this first radius define the first donut
@@ -323,7 +323,7 @@ radius_com
 radius_com
 0
 5
-5.0
+2.0
 1
 1
 NIL
@@ -450,7 +450,7 @@ buffer
 buffer
 0
 5
-3.0
+1.0
 1
 1
 NIL
