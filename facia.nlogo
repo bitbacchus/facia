@@ -580,6 +580,7 @@ disturbance
 0
 3
 1.0
+
 .1
 1
 NIL
@@ -639,7 +640,8 @@ INPUTBOX
 60
 627
 f
-0.0
+4.5
+
 1
 0
 Number
