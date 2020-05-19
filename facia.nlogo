@@ -134,7 +134,7 @@ to go
 end
 
 to-report calc-vegetation-cover
-  let vegetation-cells count patches with [state > 0]
+  let vegetation-cells count patches with [state > 1]
   let n-cells count patches
   let veg-cover vegetation-cells / n-cells
   set vegetation-cover veg-cover
@@ -144,7 +144,7 @@ end
 to p_paint  ;; patch procedure
   if (paint = "vegetation")
   [
-    set pcolor ifelse-value (state = 0) [white][scale-color black (state * 10) 40 0]
+    set pcolor ifelse-value (state < 1) [white][scale-color black (state * 10) 40 0]
   ]
   if (paint = "interaction")
   [
@@ -579,7 +579,8 @@ disturbance
 disturbance
 0
 3
-0.1
+1.0
+
 .1
 1
 NIL
@@ -640,6 +641,7 @@ INPUTBOX
 627
 f
 4.5
+
 1
 0
 Number
